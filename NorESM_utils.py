@@ -22,6 +22,11 @@ import gsw
 import seawater as sw
 from netCDF4 import Dataset
 import math
+#
+#########################
+#THIS IS THE JHU VERSION
+#
+########################
 
 def read_sections(filename):
   '''Read the section indeces defined on NorESM grid. Note that these indeces are defined for Fortran 1 based system so one needs to substract one to get the correct python 0 based indeces'''
