@@ -1,5 +1,3 @@
-import ESMF
-from esmf_utils import grid_create, grid_create_periodic
 import numpy as np
 import numpy.ma as ma
 import math as math
@@ -15,13 +13,14 @@ from mpl_toolkits.basemap import Basemap
 import sys
 import dist
 from scipy import stats
-import calendar
 # Some locally installed stuff
+#sys.path.append('/usr/lib/python2.7/site-packages')
+sys.path.append('/Home/siv22/anu074/PyFerret/gsw-3.0.2/')
+sys.path.append('/Home/siv22/anu074/PyFerret/seawater-3.3.1/')
 #import h5py
 import gsw
 import seawater as sw
 from netCDF4 import Dataset
-import math
 
 def read_sections(filename):
   '''Read the section indeces defined on NorESM grid. Note that these indeces are defined for Fortran 1 based system so one needs to substract one to get the correct python 0 based indeces'''
@@ -390,9 +389,9 @@ def drainage_basin(x,y,regime):
     
     return mask
 
-def NorESM_masks(basin_name,iinds,jinds,barents=False,secfile='secindex.dat',grid='bipolar',lon=None,lat=None, baltic=True):
+def NorESM_masks(basin_name,iinds,jinds,barents=False,secfile='secindex.dat',grid='bipolar',lon=None,lat=None, baltic=True, boundary=True):
     '''NorESM_masks(basin,iinds,jinds,barents)
-       Basin is either 'arctic' or 'nordic seas'. Barents is a flag, whether or not to include it to the 'arctic'. For the most parts we are following the gates defined in the secindex file. Note that in that file the indices are in Fortran 1 based format, that is why there is -1 in this function. Note that the difference to the above functions is that this is very NorESM specific and wont work with any other model while the functions above are able to figure out the points inside polygon in any model.'''
+       basin is either arctic or nordic seas. Barents is a flag, whether or not to include it to arctic or not. For the most parts we are following the gates defined in the secindex file. Note that in that file the indices are in Fortran 1 based format, that is why there is -1 in this function. Note that the difference to the above functions is that this is very NorESM specific and wont work with any other model while the functions above are able to figure out the points inside polygon in any model.'''
     inds_all=read_sections(secfile)
     coords=[]
     if basin_name=='atlantic':
@@ -434,8 +433,9 @@ def NorESM_masks(basin_name,iinds,jinds,barents=False,secfile='secindex.dat',gri
          coords.extend([[i_out,j_out]])
        else:
          coords.extend([[coords[-1][0],coords[-1][1]-1]])
-         j_out,i_out=lonlat_index(lon,lat,15,62,inc=0.5)
-         coords.extend([[i_out,j_out]])
+         coords.extend((inds_all.get('north_sea')[:,:2]-1).tolist())
+         #j_out,i_out=lonlat_index(lon,lat,9,58.5,inc=0.5)
+         #coords.extend([[i_out,j_out]])
      coords.extend((inds_all.get('barents_opening')[::-1,:2]-1).tolist())
      coords.extend((inds_all.get('fram_strait')[::-1,:2]-1).tolist())
      if grid in ['bipolar']:
@@ -460,7 +460,25 @@ def NorESM_masks(basin_name,iinds,jinds,barents=False,secfile='secindex.dat',gri
          j_out,i_out=lonlat_index(lon,lat,42,58.5,inc=0.5)
          coords.extend([[i_out,j_out]])
      else:
-       #don't include barents sea 
+      #don't include barents sea
+      if grid in ['tripolar']: 
+       j_out,i_out=lonlat_index(lon,lat,15,79,inc=0.5)
+       coords.extend([[i_out,j_out]])
+       j_out,i_out=lonlat_index(lon,lat,32,80,inc=0.5)
+       coords.extend([[i_out,j_out]])
+       j_out,i_out=lonlat_index(lon,lat,60,80.5,inc=0.5)
+       coords.extend([[i_out,j_out]])
+       j_out,i_out=lonlat_index(lon,lat,67.5,76.5,inc=0.5)
+       coords.extend([[i_out,j_out]])
+       j_out,i_out=lonlat_index(lon,lat,53.5,71.5,inc=0.5)
+       coords.extend([[i_out,j_out]])
+       j_out,i_out=lonlat_index(lon,lat,63.5,69,inc=0.5)
+       coords.extend([[i_out,j_out]])
+       j_out,i_out=lonlat_index(lon,lat,70,62,inc=0.5)
+       coords.extend([[i_out,j_out]])      
+       j_out,i_out=lonlat_index(lon,lat,-175,67,inc=0.5)
+       coords.extend([[i_out,j_out]])
+      elif grid in ['bipolar']: 
        coords.extend([[96,369],[99,369],[99,367],[103,367],[115,361],[117,359],[114,352],[104,352],[104,351],[101,351],[101,350],[98,350],[98,349],[96,349],[94,344],[94,333]])
      coords.extend((inds_all.get('bering_strait')[:,:2]-1).tolist())
      if grid in ['bipolar']:
@@ -492,11 +510,20 @@ def NorESM_masks(basin_name,iinds,jinds,barents=False,secfile='secindex.dat',gri
       mask=np.zeros(lat.shape)
     for j in range(len(iinds)):
        mask[jinds[j],iinds[j]]=area.contains(Point(iinds[j],jinds[j]))
+    if boundary:
+       #include boundary points
+       mask2=np.zeros(lat.shape)
+       mask2[jinds,iinds]=1
+       coords=np.asarray(coords).astype(int)
+       coords[ma.where(coords[:,0]>=lat.shape[1])[0],0]=lat.shape[1]-1
+       coords[ma.where(coords[:,1]>=lat.shape[0])[0],1]=lat.shape[0]-1
+       mask2[list(coords[:,1]),list(coords[:,0])]=mask2[list(coords[:,1]),list(coords[:,0])]+1
+       mask[ma.where(mask2==2)]=1
     
     return mask
 
 def lonlat_index(lon,lat,lon_p,lat_p,inc=0.5):
-   """Find the closest - or at least pretty close indeces from 2D lon,lat arrays that correspond to point lon_p,lat_p. 'inc' should be in order of the grid size"""
+   """Find the closest - or at least pretty close indeces from 2D lon,lat arrays that correspond to point lon_p,lat_p"""
    j1,i1=ma.where(ma.logical_and(lat<lat_p+inc,lat>lat_p-inc))
    j2=ma.where(ma.logical_and(lon[j1,i1]<lon_p+inc,lon[j1,i1]>lon_p-inc))[0]
    j_out,i_out=ma.where(ma.logical_and(lat==lat[j1,i1][j2][0],lon==lon[j1,i1][j2][0]))
@@ -504,7 +531,6 @@ def lonlat_index(lon,lat,lon_p,lat_p,inc=0.5):
    return j_out,i_out
 
 def lonlatfix(lon,lat):
-    """Make Longitudes to be in between -180 and 180, and output 2D lon, lat"""
     norm_grid=False
     if ma.min(lon)<-180:
       lon[lon<0.0]=lon[lon<0.0]+360
@@ -522,7 +548,7 @@ def lonlatfix(lon,lat):
 
 
 def enable_global(tlon,tlat,data):
-  """Fix NorESM/CCSM4 (only works with these models) data in such a way that it can to be plotted on a global projection on its native grid"""
+  """Fix the data in such a way that it can to be plotted on a global projection on its native grid"""
   tlon = np.where(np.greater_equal(tlon,min(tlon[:,0])),tlon-360,tlon)
   tlon=tlon+abs(ma.max(tlon)); tlon=tlon+360
   # stack grids side-by-side (in longitiudinal direction), so
@@ -575,7 +601,7 @@ def NorESM_add_cyclic(lon,lat,data,dim=1):
 #         dy[i,j]=d*np.sin(np.radians(lat[i,j]));dx[i,j]=d*np.cos(np.radians(lon[i,j]))
 
 def across_line(lon,lat,u,v,lon_line,lat_line,FirstTime=True,iind=None,jind=None,dxout=None,dyout=None,dxin=None,dyin=None):
-     """Line is a list of lon,lat points defining the line, with a straight line only start and end points are iven. U and V should be the eastward and northward transport (velocity) components. One can use the vecrotc to rotate the components if they are initially on a model grid."""
+#     """Line is a list of lon,lat points defining the line, with a straight line only start and end points are iven. U and V should be the eastward and northward transport (velocity) components. One can use the vecrotc to rotate the components if they are initially on a model grid."""
      #
      #First we find a smaller area around the line to speed up the interpolation
      if FirstTime:
@@ -764,63 +790,10 @@ def runningMean(x, N, axis=None):
        if axis==1: runmean=runmean.T
     return runmean
 
-def timeMean(x,year0,inds=None,xtype='monthly',dt=None):
-    """Make averages over time up to a year from annual daily data (i.e. there is 365+ entries). If longer time mean is required then calculate monthly means with this script and annual/longer averages from that. It's suggested not to give the indices, but to use 'monthly' flag or dt for all the rest."""
-    dim=x.shape
-    n1=365
-    if type(inds)==type(None):
-      if xtype in ['monthly']:
-        inds=np.cumsum([0,31,28,31,30,31,30,31,31,30,31,30,31])
-      else:
-        inds=np.arange(0,n1+1,dt)
-        inds[-1]=n1
-    n=len(inds)-1
-    if dt!=None and dim[0]%int(dt)==0:
-      if len(dim)==1:
-        y=np.nanmean(np.reshape(x,(dim[0]/dt,dt)),1)
-      elif len(dim)==2:
-        y=np.nanmean(np.reshape(x,(dim[0]/dt,dt,dim[1])),1)
-      elif len(dim)==3:
-        y=np.nanmean(np.reshape(x,(dim[0]/dt,dt,dim[1],dim[2])),1)
-    else:
-      years=int(x.shape[0]/365.) #how many years
-      if len(dim)==1: 
-        y=np.zeros(years*(len(inds)-1)) #initialize the output
-        for year in range(year0,year0+years): #loop over the years
-          if year==year0: 
-            inds1=inds.copy() #if the first year then just copy the inds
-          else:
-            inds1=inds+inds1[-1] #if not the first years, then increase the indicaes
-          if calendar.isleap(year):
-            if n==12: #if monthly then add the leap day to february
-              inds1[2:]=inds1[2:]+1
-            else: #if not monthly then just use the additional day in the very end
-              inds1[-1]=inds1[-1]+1
-          for j in range(n-1): #loop over the time discretization (months,weeks,etc)
-            y[j]=np.nanmean(x[inds1[j]:inds1[j+1]])
-      else:
-        y=np.zeros(list([years*(len(inds)-1)])+list(dim[1:]))
-        c=0
-        for year in range(year0,year0+years): #loop over the years
-          if year==year0:
-            inds1=inds.copy() #if the first year then just copy the inds
-          else:
-            inds1=inds+inds1[-1] #if not the first years, then increase the indicaes
-          if calendar.isleap(year):
-            if n==12: #if monthly then add the leap day to february
-              inds1[2:]=inds1[2:]+1
-            else: #if not monthly then just use the additional day in the very end
-              inds1[-1]=inds1[-1]+1
-          for j in range(n): #loop over the time discretization (months,weeks,etc)
-            y[c,:]=np.nanmean(x[inds1[j]:inds1[j+1],:],0)
-            c=c+1
-    
-    return y
-
 def AnnualMean(x,w=None):
     """mean=AnnualMean(x,w=None)
        Calculate the annual mean from monthly timeseries, time is assumed to be the zero dimension.
-       If months are of different length then use w for weights"""
+       If monhts are of different length then use w for weights"""
     dim=x.shape
     ###############
     if len(dim)==1:
@@ -954,11 +927,11 @@ def interp_sigmacoord_to_lev(data,dz, z, jinds, iinds, bad_value, save_data=Fals
 
 def climatology(S):
     '''Calculate annual climatology from monthly data. Here we assume that the first dimension of S is time.'''
-    tdim, jdim, idim=S.shape
-    years=tdim/12
-    C=ma.zeros((12,jdim,idim))
+    #tdim, jdim, idim=S.shape
+    #years=tdim/12
+    C=ma.zeros(S.shape)[:12,] #ma.zeros((12,jdim,idim))
     for m in range(12):
-      C[m,:,:]=ma.mean(S[m::12,:,:],0)
+      C[m,]=ma.mean(S[m::12,],0)
     
     return C
 
@@ -966,10 +939,10 @@ def remove_clim(S):
     """ Remove monthly climatology from the data. Here we assume that the first dimension of S is time with monthly timesteps. This function uses the climatology function to calculate the monthly climatology. """
     C=climatology(S)
     Sout=S.copy()
-    tdim, jdim, idim=S.shape
-    years=tdim/12
+    dims=S.shape
+    years=dims[0]/12
     for y in range(years):
-      Sout[y*12:(y+1)*12,:,:]=S[y*12:(y+1)*12,:,:]-C
+      Sout[y*12:(y+1)*12,]=S[y*12:(y+1)*12,]-C
     
     return Sout
 
@@ -1081,9 +1054,6 @@ def seasonind(ys,ye,season='winter'):
      
     return seasonind
 
-########################################################################################
-# THE FOLLOWING ARE THE EQUATION OF STATE OF SEAWATER USED IN NORESM1-M (CMIP5 VERSION)
-
 def eosben07_const():
     a11= 9.9985372432159340e+02;
     a12= 1.0380621928183473e+01;
@@ -1149,8 +1119,6 @@ def eosben07_rho_s(p,th,s):
     #
     return r
 
-################################################################################
-
 def read_mimoc():
     """ Read MIMOC climatology on pressure levels. p,lon,lat,saln,temp=read_mimoc()"""
     saln=np.zeros((12,81,341,720))
@@ -1185,7 +1153,7 @@ def read_mimoc_ML(wm=False):
 
     return lon,lat,saln,temp,depth
 
-def smooth2D(lon,lat,datain,n=1,use_weights=False,weights_only=False,save_weights=False,use_median=False,save_path='/Home/siv22/anu074/temp_data/JHU/'):
+def smooth2D(lon,lat,datain,n=1,use_weights=False,weights_only=False,save_weights=False,save_path='/Home/siv22/anu074/temp_data/JHU/'):
   """2D smoothing of (preferably masked) array datain (should be shape (lat,lon)), will be using halo of n, if n=1 (default) then the each point will be 9 point average. Option to use distance weights"""
   dataout=ma.zeros(datain.shape)
   ymax,xmax=datain.shape
@@ -1195,7 +1163,6 @@ def smooth2D(lon,lat,datain,n=1,use_weights=False,weights_only=False,save_weight
   else:
     jind,iind=ma.where(np.ones(datain.shape))
   #weights_out=np.zeros(len(jind))
-  weights_out=None #initialize output weights even if one doesn't want them
   for k in range(len(jind)):
     j=jind[k]; i=iind[k] #j=1; i=1
     jind2=[]; iind2=[]; dxy=[]
@@ -1217,7 +1184,7 @@ def smooth2D(lon,lat,datain,n=1,use_weights=False,weights_only=False,save_weight
         if use_weights:
           dxy.append(dist.distance([lat[j],lon[i]],[lat[jind2[c]],lon[iind2[c]]]))
         c=c+1
-    if k%10000.==0:
+    if k%1000.==0:
        print k, c, j, i
     if use_weights:
       if k==0:
@@ -1616,6 +1583,8 @@ def load_CMIP5(var,regime1,dims,models=None,scenario='rcp85',ensembles=None,z=[N
           #INTIALIZE VARIABLES
           #then the timeseries of a full 2D field (could be for example temperature at certain layer)
           if dims[c]==2 and v not in ['msftmyz','mfo','hfbasin']:
+            print v,m,k,len(taxis),lon.shape[0],lon.shape[1]
+            #exec('f_d=Dataset(path'+v+str(k)+'+dirList'+v+str(k)+'[0])')
             exec(v+'_'+str(m)+'_'+str(k)+'=np.zeros((len(taxis),lon.shape[0],lon.shape[1]))')
             exec('f_d=Dataset(path'+v+str(k)+'+dirList'+v+str(k)+'[0])')
             #if model in ['CanESM2','CSIRO-Mk3-6-0']:
@@ -1739,10 +1708,9 @@ def load_CMIP5(var,regime1,dims,models=None,scenario='rcp85',ensembles=None,z=[N
 
 def increase_resolution(t1,s1,sig1,dz1,c=35, cn=15):
   """ t2,s2,sig2,dz2,zaxis2=increase_resolution(t1,s1,sig1,dz1,c=35, n=15) 
-      This is a way to increase vertical resolution in MICOM - usefull if you want to create a new startup file.
-      Creates new fields t2,s2,sig2,dz2 by adding n=cn-1 new layers between levels c,c+cn.
+      creates a new fields t2,s2,sig2,dz2 by adding n=cn-1 new layers between levels c,c+cn.
       The addition is done in sigma space and the thickness of the new layer is 1/2 of the thickness of the
-      layer above and below. NOTE that cn must be 2>=2.
+      layer above and below. NOTE that cn must be 2>=2
   """
   n=cn-1 #this is the number of new levels
   c2=c
@@ -2065,54 +2033,3 @@ def make_segments(x, y):
     segments = np.concatenate([points[:-1], points[1:]], axis=1)
     
     return segments
-
-def create_ESMF_mask(adstr,cutoff=0.9,var='sst',infile='sst.day.mean.2000.v2.nc'):
-    '''
-    Create proper mask for regridded fields
-    '''
-    inpath='/datascope/hainegroup/anummel1/Projects/MicroInv/'+var+'_data/annual_files/'
-    file1=Dataset(inpath+infile)
-    sla=file1.variables[var][0,:,:].squeeze() #sla_in[n,:,:] #file1.variables['sla'][n,:,:].squeeze()
-    srcmask=sla.mask
-    srcgrid=grid_create_periodic([1440,720])
-    if adstr in ['0.5deg']:
-      dstgrid=grid_create_periodic([720,360]) #0.5 deg
-    elif adstr in ['1deg']:
-      dstgrid=grid_create_periodic([360,180]) #1 deg
-    elif adstr in ['2deg']:
-      dstgrid=grid_create_periodic([180,90])  #2 deg
-    elif adstr in ['3deg']:
-      dstgrid=grid_create_periodic([120,60])  #3 deg
-    elif adstr in ['4deg']:
-      dstgrid=grid_create_periodic([90,45])   #4 deg
-    #
-    file1=Dataset(inpath+infile)
-    src_field_mask=ESMF.Field(srcgrid, 'mask',staggerloc=ESMF.StaggerLoc.CENTER)
-    #
-    src_field_mask.data[720:,:]=srcmask.T[:720,:]
-    src_field_mask.data[:720,:]=srcmask.T[720:,:]
-    dst_field_mask = ESMF.Field(dstgrid, 'sla_1_mask',staggerloc=ESMF.StaggerLoc.CENTER)
-    regridSrc2Dst_mask = ESMF.Regrid(src_field_mask, dst_field_mask, regrid_method=ESMF.RegridMethod.CONSERVE,unmapped_action=ESMF.UnmappedAction.ERROR)
-    dstfield_mask = regridSrc2Dst_mask(src_field_mask, dst_field_mask)
-    dstfield_mask2=dstfield_mask.data
-    dstfield_mask2[np.where(dstfield_mask2<0.9)]=0
-    dstfield_mask2=np.ceil(dstfield_mask2)
-    #
-    return dstfield_mask2.T, dstgrid.coords[0][0][:,0].squeeze(), dstgrid.coords[0][1][0,:].squeeze()
-
-
-def geographic_midpoint(lat,lon,w=None):
-    '''Geographic Midpoint'''
-    if w is None:
-      if ma.is_masked(lat):
-        w=ma.masked_array(np.ones(lat.shape),mask=lat.mask)
-      else:
-        w=np.ones(lat.shape)
-    x=ma.sum(np.cos(lat*np.pi/180.)*np.cos(lon*np.pi/180.)*w,0)/ma.sum(w,0)
-    y=ma.sum(np.cos(lat*np.pi/180.)*np.sin(lon*np.pi/180.)*w,0)/ma.sum(w,0)
-    z=ma.sum(np.sin(lat*np.pi/180.)*w,0)/ma.sum(w,0)
-    #
-    lon_out=np.arctan2(y,x)*180./np.pi
-    lat_out=np.arctan2(z,np.sqrt(x*x+y*y))*180./np.pi
-    #
-    return lat_out,lon_out
