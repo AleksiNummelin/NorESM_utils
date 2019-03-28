@@ -1,34 +1,85 @@
-import ESMF
-from esmf_utils import grid_create, grid_create_periodic
+#import ESMF
+#from esmf_utils import grid_create, grid_create_periodic
+import xarray as xr
+import dask
+import numpy as np
+from matplotlib.colors import from_levels_and_colors
+import matplotlib as mpl
+#
 import numpy as np
 import numpy.ma as ma
-import math as math
-import scipy.io.netcdf as nio
-import scipy.io as io
+#import math as math
+#import scipy.io.netcdf as nio
+#import scipy.io as io
 from scipy.interpolate import griddata
 from scipy import interpolate
 from shapely.geometry import Point
 from shapely.geometry.polygon import Polygon
 from shapely.geometry.polygon import LinearRing
 import os
-from mpl_toolkits.basemap import Basemap
+#
+import cartopy.crs as ccrs
+#
+#from mpl_toolkits.basemap import Basemap
 import sys
-import dist
+#import dist
 from scipy import stats
 import calendar
 # Some locally installed stuff
 #import h5py
-import gsw
-import seawater as sw
-from netCDF4 import Dataset
-import math
-#
-#########################
-#THIS IS THE JHU VERSION
+#import gsw
+#import seawater as sw
+#from netCDF4 import Dataset
+#import math
 #
 ########################
+#
+def distance(origin, destination, radius = 6371):
+    '''
+     
+    '''
+    lat1, lon1 = origin
+    lat2, lon2 = destination
+    dlat = np.radians(lat2-lat1)
+    dlon = np.radians(lon2-lon1)
+    a = np.sin(dlat/2) * np.sin(dlat/2) + np.cos(np.radians(lat1))* np.cos(np.radians(lat2)) * np.sin(dlon/2) * np.sin(dlon/2)
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1-a))
+    d = radius * c
+    #
+    return d
 
-def read_sections(filename):
+def circular_boundary(rad=0.5):
+    '''
+    Create a circular path for cartopy polar stereographic plots
+    see https://scitools.org.uk/cartopy/docs/latest/gallery/always_circular_stereo.html#custom-boundary-shape
+    '''
+    theta = np.linspace(0, 2*np.pi, 100)
+    center, radius = [0.5, 0.5], rad
+    verts = np.vstack([np.sin(theta), np.cos(theta)]).T
+    return mpl.path.Path(verts * radius + center)
+
+def discrete_cmap(levels,cmap0=mpl.cm.viridis,extend='both'):
+    '''
+    Create a discrete colormap
+    '''
+    cmlist=[];
+    if extend in ['max','min']:
+        rgb_levels = np.linspace(0,252,len(levels))
+    elif extend in ['both']:
+        rgb_levels = np.linspace(0,252,len(levels)+1)
+    else:
+        rgb_levels = np.linspace(0,252,len(levels)-1)
+    #
+    for cl in rgb_levels: cmlist.append(int(cl))
+    #
+    cmap1, norm1 = from_levels_and_colors(levels,cmap0(cmlist),extend=extend)
+    #
+    return cmap1, norm1
+
+
+
+
+def read_sections_old(filename):
   '''Read the section indeces defined on NorESM grid. Note that these indeces are defined for Fortran 1 based system so one needs to substract one to get the correct python 0 based indeces'''
   f=open(filename)
   data=f.readlines()
@@ -56,6 +107,28 @@ def read_sections(filename):
     exec('output.update({"'+dataname+'": '+dataname+'})')
   #
   return output
+
+def read_sections(filename):
+    '''
+    Read the section indeces defined on NorESM grid. 
+    Note that these indeces are defined for Fortran 1 based system 
+    so one needs to substract one to get the correct python 0 based indeces
+    '''
+    #
+    data=open(filename).readlines()
+    titles = [name for name in data if 1+name.find('Name')]
+    indices = [data.index(title) for title in titles] #indices of the titles
+    indices.append(len(data)) # last index
+    #
+    output={}
+    for ii,ind in enumerate(indices[:-1]):
+        dum=[]
+        for jj in range(ind+1,indices[ii+1]):
+            dum.append(np.array(data[jj].strip().split(),dtype=int)-1)
+        output[titles[ii][6:-1].strip()]=np.array(dum)
+        
+    return output
+
 
 def read_section_data(fpath,model,ens,files):
   """Read section transports from CMIP5 models. MFO is the standard output."""
@@ -291,8 +364,8 @@ def basin_coords(x,y,basin_name):
        xp=[27.2474628708497,36.5447032085722,48.5214896162041,60.7001380803934,77.9434238049383,94.8206611280039,107.876624193844,114.76253701556,121.721644200227,134.412781688966,140.650432725167,141.964704250335,145.155248340791,149.246374638137,132.143273251575,149.76109018589,-79.6880622455017,-55.18591213471,-43.4591200137502,-22.0049915144465,-20.6758818057775,-17.5930251981611,-9.73692516655174,5.28638472739742,27.2474628708497]
        yp=[81.2047365447009,81.5007859895957,82.2436675361916,82.721919243158,82.4532187163616,81.6658524321853,80.1201616988957,78.868040305759,77.3745806589471,78.343810419039,79.2198008825623,81.0361747596064,82.8850251870597,84.6970166179212,88.170272215848,88.5112003265041,89.0201530656119,86.82607324433,85.3307236364029,85.7137862915936,84.4424860812103,83.6275436815664,82.8313390219846,82.2610471668164,81.2047365447009]
     elif basin_name=='arctic':
-       xp=[20.0,66.0,67.0,59.0,54,63.0,95.0,150.0,-175.0,-164,-110.0,-72.0] # ,75,190,235,300,345,20]
-       yp=[80.0,80.0,76.5,75.0,72,69.0,66.0,66.0 , 66.5,65.5, 66.0,   80.0]  #70,68,70,83,80,80]
+         xp=[20.0,66.0,67.0,59.0,54,63.0,95.0,150.0,-175.0,-164, -127, -127,-124,-122.9,-122,-110.4,-95.2,-88.4, -62.3, -56.5, -40,-20]
+         yp=[80.0,80.0,76.5,75.0,72,69.0,66.0, 66.0,  66.5,65.5, 65.5,   70,72.2,  74.1,76.1,  78.6, 80.4, 81.8,  82.4,  81.6,  79, 80]
     elif basin_name=='arctic_mediterranean':
        xp=[-32,-20,-14,-7,-1.5,14,20,30,63.0,95.0,150.0,-175.0,-164,-110.0,-72.0,-40.]
        yp=[ 68, 65, 65,62,60.5,61,68,66,69.0,66.0,66.0 ,  66.5,65.5,  66.0,  80.0,80.]
@@ -344,8 +417,12 @@ def basin_coords(x,y,basin_name):
     
     return xp,yp
 
-def basin_mask(x,y,basin_name,is_basin=True,xp=None,yp=None):
-    """ Find out whether lon, lat coordinated are inside a polygon """
+def basin_mask_old(x,y,basin_name,is_basin=True,xp=None,yp=None):
+    """ 
+    THIS FUNCTION IS DEPRECATED IN FAVOR OF USING CARTOPY BASED
+    FUNCTION basin_mask instead!
+    
+    Find out whether lon, lat coordinated are inside a polygon """
     #if the basin polygon is not given find it based on the name
     if is_basin:
       xp,yp=basin_coords(x,y,basin_name)
@@ -367,6 +444,50 @@ def basin_mask(x,y,basin_name,is_basin=True,xp=None,yp=None):
         for i in range(x.shape[0]):
           xx,yy=m(x[i],y[j])
           inside[j,i]=point_inside_polygon(xx,yy,poly)
+    
+    return inside
+
+
+def basin_mask(x,y,basin_name=None,xp=None,yp=None):
+    """ 
+    Find out whether lon, lat coordinated are inside a polygon.
+    If the basin polygon is not given find it based on the name.
+    
+    x : longitude in degrees, can be either 1D or 2D (will be converted to 2D)
+    y : latitude in degrees, can be either 1D or 2D (will be converted to 2D)
+    basin_name : str, optional, default is None. If basin_name is given then
+    basin_coords needs to have a corresponding entry. If basin_name is not give,
+    then one needs to specify the coordinates xp, yp
+    xp, yp : lon,lat coordinates in degrees defining a polygon. 
+    """
+    #
+    if np.all(xp==None) and np.all(yp==None):
+        xp, yp = basin_coords(x,y,basin_name)
+        xp, yp = np.array(xp),np.array(yp)
+    # transfrom coordinates to polar strereographic so don't have to deal with the polar singularity
+    proj     = ccrs.NorthPolarStereo(central_longitude=0.0)
+    tcoords1 = proj.transform_points(ccrs.PlateCarree(), xp, yp)
+    xp, yp   = tcoords1[:,0], tcoords1[:,1]
+    tcoords2 = proj.transform_points(ccrs.PlateCarree(), x, y)
+    #
+    poly=[]
+    for j in range(len(xp)):       
+        poly.append((xp[j],yp[j]))
+    
+    if(len(x.shape)==2):
+        print('2d')
+        xx, yy = tcoords2[:,:,0], tcoords2[:,:,1]
+        inside = np.ones(xx.shape)*np.nan
+        for j in range(xx.shape[0]):
+            for i in range(xx.shape[1]):
+                inside[j,i]=point_inside_polygon(xx[j,i],yy[j,i],poly)
+    elif(len(x.shape)==1):
+        xx, yy = tcoords2[:,0], tcoords2[:,1]
+        xx, yy = np.meshgrid(xx,yy)
+        inside = np.ones((y.shape[0], x.shape[0]))*np.nan
+        for j in range(yy.shape[0]):
+            for i in range(xx.shape[0]):
+                inside[j,i]=point_inside_polygon(xx[j,i],yy[j,i],poly)
     
     return inside
 
@@ -1220,7 +1341,7 @@ def smooth2D(lon,lat,datain,n=1,use_weights=False,weights_only=False,save_weight
         if datain.mask[jind2[-1],iind2[-1]]:
          jind2[-1]=j; iind2[-1]=i
         if use_weights:
-          dxy.append(dist.distance([lat[j],lon[i]],[lat[jind2[c]],lon[iind2[c]]]))
+          dxy.append(distance([lat[j],lon[i]],[lat[jind2[c]],lon[iind2[c]]]))
         c=c+1
     if k%10000.==0:
        print k, c, j, i
@@ -1262,7 +1383,7 @@ def uv_interp_closest_dist(xlon,ylat,jj,ii,u,v,ulon,ulat,vlon,vlat,umask,vmask,i
    if hh>383: break
    if hh<0: break
    for kk in [ii,inw[hh,ii],ine[hh,ii],ine[hh,ine[hh,ii]]]:
-     du.append(dist.distance([xlon,ylat],[ulon[hh,kk],ulat[hh,kk]]))
+     du.append(distance([xlon,ylat],[ulon[hh,kk],ulat[hh,kk]]))
      jjii_u.append([hh,kk])
   
   #sort the distance list and pick 4 closest
@@ -1279,7 +1400,7 @@ def uv_interp_closest_dist(xlon,ylat,jj,ii,u,v,ulon,ulat,vlon,vlat,umask,vmask,i
    if hh>383: break
    if hh<0: break
    for kk in [ii,inw[hh,ii],ine[hh,ii]]:
-     dv.append(dist.distance([xlon,ylat],[vlon[hh,kk],vlat[hh,kk]]))
+     dv.append(distance([xlon,ylat],[vlon[hh,kk],vlat[hh,kk]]))
      jjii_v.append([hh,kk])
   
   #sort the distance list and pick 4 closest - note that the weigth is total_dist-dist/sum(total_dist) giving largest weigth to the closest point
@@ -1847,57 +1968,260 @@ def increase_resolution(t1,s1,sig1,dz1,c=35, cn=15):
   return t2,s2,sig2,dz2,zaxis2
 
 
-def latitude_line(lat0, lat):
-    """Define the indices which mark a latitude """
+def latitude_line_old(lat0, lat):
+    """
+    Define the indices which mark a latitude 
+    """
     iind=[]
     jind=[]
-    sum=0
-    #lat0=80
-    i=0 #keeps track of the model i index
-    i2=0 #keeps track of the length of the jind and iind
-    i3=0 #helper index for looping backwards
+    i=0 #keeps track index
     maxy=lat.shape[0]
     maxx=lat.shape[1]-1
     keep_looping=True
     backwards=False
     bipolar=False
-    if len(np.where(np.diff(lat[-1,:])==0)[0])==1:
-       bipolar=True
-    #for i in range(320):
+    if len(np.where(np.diff(lat[-1,:])==0)[0])==0:
+        bipolar=True
     while keep_looping: #normally loop over i indices from 0:320
-      if not backwards and (lat0<max(lat[:,i]) and lat0>=min(lat[:,i])):
-        #if the latitude is available append the index, this is the normal situation
-        ind=np.where(lat0<=lat[:,i])[0][0] #(np.logical_and((lat-l)>=(-.5*dlat), (lat-l)<(.5*dlat)))
-        jind.append(ind)
-        iind.append(i)
-        i=i+1; i2=i2+1; i3=i3+1
-      elif len(jind)>0 and bipolar: #not (lat0<ma.max(lat[:,i:]) and lat0>=ma.min(lat[:,i:])): 
-        #if the latitude doesn't exist and some indices are already there (situation close to north pole in in bipolar grid)
-        #Also check that the latitude doesn't exist in the rest of the matrix (which cab be the case for the tripolar setup)
-        #Then loop backwards
-        if (lat0<max(lat[:,i-1]) and lat0>=min(lat[:,i-1])):
-          #ind=np.round(np.interp(lat0, lat[jind[i3-1]:,i-1], np.arange(jind[i3-1],maxy)))
-          ind=np.where(lat0<=lat[:,i-1])[0][-1]
-          jind.append(ind)
-          iind.append(i-1)
-          i2=i2+1; i3=i3-1
+        if not backwards and (lat0<max(lat[:,i]) and lat0>=min(lat[:,i])):
+             #if the latitude is available append the index, this is the normal situation
+             ind = np.where(lat0<=lat[:,i])[0][0] #
+             #ind = np.where(np.logical_and(lat[:,i]>=(lat0-.5), lat[:,i]<(lat0+.5)))[0]
+             #ind[np.where(lat[ind,i]-lat0==min(lat[ind,i]-lat0))[0]]
+             # check that the cells are adjacent
+             if len(jind)>0:
+                 if abs(jind[-1]-ind)>1:
+                     for k in range(abs(jind[-1]-ind)-1):
+                         jind.append(jind[-1]-1*np.sign(jind[-1]-ind))
+                         iind.append(i-1)
+             #   
+             jind.append(ind)
+             iind.append(i)
+             i=i+1
+        elif len(jind)>0 and bipolar:
+            #if the latitude doesn't exist and some indices are already there (situation close to north pole in in bipolar grid)
+            #Also check that the latitude doesn't exist in the rest of the matrix (which can be the case for the tripolar setup)
+            #Then loop backwards
+            if (lat0<max(lat[:,i-1]) and lat0>=min(lat[:,i-1])):
+                ind=np.where(lat0<=lat[:,i-1])[0][-1]
+                # check that the cells are adjacent
+                if abs(jind[-1]-ind)>1:
+                    for k in range(abs(jind[-1]-ind)-1):
+                        jind.append(jind[-1]-1*np.sign(jind[-1]-ind))
+                        iind.append(i)
+                jind.append(ind)
+                iind.append(i-1)
+            else:
+                keep_looping=False
+                #fill in the the list if needed
+                if jind[-1]-jind[0]>1:
+                    kk=jind[-1]-jind[0]
+                    for k in range(kk):
+                        jind.append(jind[-1]-1)
+                        iind.append(iind[-1])
+            i=i-1
+            backwards=True
         else:
-          keep_looping=False
-          #fill in the the list if needed
-          if jind[-1]-jind[0]>1:
-            kk=jind[-1]-jind[0]
-            for k in range(kk):
-              jind.append(jind[-1]-1)
-              iind.append(iind[-1])
-        i=i-1;
-        backwards=True
-      else:
-        i=i+1;
-      if i>maxx or i<0:
-        keep_looping=False
+            i=i+1
+        if i>maxx or i<0:
+            keep_looping=False
     #
     return iind, jind
 
+
+
+def latitude_line(lat0, lat):
+    """
+    Define the indices which mark a latitude 
+    """
+    iind=[]
+    jind=[]
+    i=0 #keeps track index
+    maxy=lat.shape[0]-1
+    maxx=lat.shape[1]-1
+    keep_looping=True
+    backwards=False
+    bipolar=False
+    if len(np.where(lat==np.max(lat))[0])==1: #len(np.where(np.diff(lat[-1,:])==0)[0])==0:
+        bipolar=True
+        print('bipolar')
+    while keep_looping: #normally loop over i indices
+        ind = np.where(lat0<=lat[:,i])[0].astype(int)
+        #
+        if not backwards and len(ind)>0:
+            #
+            ind=ind[0]
+            # check that the cells are adjacent
+            if len(jind)>0 and abs(jind[-1]-ind)>1 and iind[-1]==i-1:
+                #
+                for k in range(abs(jind[-1]-ind)-1):
+                    jind.append(jind[-1]-np.sign(jind[-1]-ind))
+                    iind.append(i-1)
+            # tripolar fix - if there is no connection to the previous point
+            # make sure to take the index to the end of the domain
+            if len(jind)==0 and ind<maxy and i>0 and not bipolar:
+                ind = np.where(lat0<=lat[:,i])[0].astype(int)
+                jind = sorted(list(ind),reverse=True)
+                iind = list(i*np.ones(len(ind)).astype(int))
+            elif i<maxx and ind<maxy and (len(np.where(lat0<=lat[:,i+1])[0])<1 or len(np.where(lat0<=lat[:,i-1])[0])<1) and not bipolar:
+                ind = np.where(lat0<=lat[:,i])[0].astype(int)
+                if len(np.where(lat0<=lat[:,i-1])[0])<1:
+                    ind = sorted(ind,reverse=True)
+                else:
+                    ind = sorted(ind,reverse=False)
+                jind.extend(list(ind))
+                iind.extend(list(i*np.ones(len(ind)).astype(int)))
+            else:
+                #
+                jind.append(ind)
+                iind.append(i)
+            i=i+1
+        elif len(jind)>0 and bipolar:
+            # if the latitude doesn't exist and some indices are already there (situation close to north pole in in bipolar grid)
+            # Also check that the latitude doesn't exist in the rest of the matrix (which can be the case for the tripolar setup)
+            # Then loop backwards
+            if (lat0<max(lat[:,i-1]) and lat0>=min(lat[:,i-1])):
+                ind=np.where(lat0<=lat[:,i-1])[0][-1]
+                # check that the cells are adjacent
+                if abs(jind[-1]-ind)>1:
+                    for k in range(abs(jind[-1]-ind)-1):
+                        jind.append(jind[-1]-1*np.sign(jind[-1]-ind))
+                        iind.append(i)
+                jind.append(ind)
+                iind.append(i-1)
+            else:
+                keep_looping=False
+                #fill in the the list if needed
+                if jind[-1]-jind[0]>1:
+                    kk=jind[-1]-jind[0]
+                    for k in range(kk):
+                        jind.append(jind[-1]-1)
+                        iind.append(iind[-1])
+            i=i-1
+            backwards=True
+        else:
+            i=i+1
+        if i>maxx or i<0:
+            keep_looping=False
+    #
+    return iind, jind
+
+
+
+
+
+
+  
+
+def heat_trasport2(iind,jind,xtransport,ytransport):
+    """ 
+    calculate the heat transport accross a given line. 
+    calculate first iind and jiind. Note that this will work
+    in a cartesian grid and on a NorESM type of C grid.
+
+    This works until roughly 80N, after that the latitude lines will not
+    represent closed domains in the model i,j space. At that point it 
+    would probably be reasonable to close them 'artifically', in order
+    to 'conserve' properties (to the extent it is possible with time means)
+    """
+    #looks already pretty good some things should be still figured out
+    #First cell
+    sumtot=ytransport[:,jind[0],iind[0]]
+    if jind[1]>jind[0]:
+          #if the next step is up right then add the transport from the cell to the right
+          sumtot=np.nansum([sumtot,-1*xtransport[:,jj,ii+1]],0)
+    #Last cell
+    if iind[-1]==xtransport.shape[-1]-1:
+    #if normal case with increasing indices
+        if jind[-1]==jind[0]:
+            sumtot=np.nansum([sumtot, ytransport[:,jind[-1],iind[-1]]],0)
+        elif jind[-1]>jind[0]:
+            sumtot=np.nansum([sumtot, ytransport[:,jind[-1],iind[-1]]+xtransport[:,jind[0],iind[0]]],0)
+        elif jind[-1]<jind[0]:
+            sumtot=np.nansum([sumtot, ytransport[:,jind[-1],iind[-1]]-xtransport[:,jind[0],iind[0]]],0)
+    #if a tripolar grid
+    elif iind[-1]>iind[-2] and jind[-1]>jind[-2]:
+        sumtot=np.nansum([sumtot, ytransport[:,jind[-1],iind[-1]]-xtransport[:,jind[-1],iind[-1]]],0)
+    ##########################
+    # - LOOP OVER THE REST - #
+    ##########################
+    for j in range(1,len(jind)-1):
+        #note that the last point is the copy of the first in case of bibolar
+        jj=jind[j]; ii=iind[j]
+        ##################################
+        #Straight Line in X
+        if jind[j-1]==jj and iind[j-1]<ii:
+            #add the transport from the cell below
+            sumtot=np.nansum([sumtot, ytransport[:,jj,ii]],0)
+            if jind[j+1]>jj:
+                #if the cell is last one in a strike of a cells before a step upwardright
+                sumtot=np.nansum([sumtot, -1*xtransport[:,jj,ii+1]],0)
+        ###################################
+        #Straight backward line in x
+        elif jind[j-1]==jj and iind[j-1]>ii and jj+1<ytransport.shape[1]:
+            #add the transport from the cell above
+            sumtot=np.nansum([sumtot, -1*ytransport[:,jj+1,ii]],0)
+            if jind[j+1]<jj and iind[j+1]<ii:
+                #if the cell is last one in a strike of a cells before a step downleft add the positive of xtransport
+                sumtot=np.nansum([sumtot, xtransport[:,jj,ii-1]],0)
+        ###################################
+        #Straight line in y downwards
+        elif jind[j-1]>jj and iind[j-1]==ii:
+            sumtot=np.nansum([sumtot, xtransport[:,jj,ii]],0)
+            if iind[j+1]>ii:
+                #if the cell is last one in a strike of a cells before a step right add the ytransport from below
+                sumtot=np.nansum([sumtot, ytransport[:,jj,ii]],0)
+        ###################################
+        #Straight line in y upwards
+        elif jind[j-1]<jj and iind[j-1]==ii:
+            sumtot=np.nansum([sumtot, -1*xtransport[:,jj,ii+1]],0)
+            if iind[j+1]<ii and jj+1<xtransport.shape[-2]:
+                #if the cell is last one in a strike of a cells before a step left add the ytransport from above
+                sumtot=np.nansum([sumtot, -1*ytransport[:,jj+1,ii]],0)
+        ###################################
+        #Step down-right
+        elif jind[j-1]>jj and iind[j-1]<ii:
+            #add transport from the cell to the left
+            sumtot=np.nansum([sumtot,xtransport[:,jj,ii]],0)
+            if iind[j+1]!=ii:
+                #and if the next move is away from this point ie the next cell is not the cell below
+                #then add also the transport from below
+                sumtot=np.nansum([sumtot,ytransport[:,jj,ii]],0)
+        ####################################
+        #Step upright
+        elif jind[j-1]<jj and iind[j-1]<ii:
+            #Add the ytransport from cell below
+            sumtot=np.nansum([sumtot,ytransport[:,jj,ii]],0)
+            if jind[j+1]!=jj:
+                #and if the next step is not next to it then negative of the x transport from the cell to the right
+                sumtot=np.nansum([sumtot,-1*xtransport[:,jj,ii+1]],0)
+            if iind[j+1]<ii:
+                #if the next step is step up-left (ie you're in the turning point to backward stepping)
+                sumtot=np.nansum([sumtot,-1*ytransport[:,jj+1,ii]],0)
+        #####################################
+        #Step up-left (backwards up)
+        elif jind[j-1]<jj and iind[j-1]>ii:
+            #add x transport from the cell to the right 
+            sumtot=np.nansum([sumtot,-1*xtransport[:,jj,ii+1]],0)
+            if iind[j+1]<ii and jj+1<ytransport.shape[1]:
+                # if the next step is not directly above add the transport from the cell above
+                sumtot=np.nansum([sumtot,-1*ytransport[:,jj+1,ii]],0)
+            if jind[j+1]<jj:
+                # and if the next step is down left then add transport from the cell to the left
+                sumtot=np.nansum([sumtot,xtransport[:,jj,ii]],0)
+        ######################################
+        #Step down-left (backwards down)
+        elif jind[j-1]>jj and iind[j-1]>ii:
+            #add y transport from above
+            sumtot=np.nansum([sumtot,-1*ytransport[:,jj+1,ii]],0)
+            if jind[j+1]<jj:
+                #and if the next cell is not the cell to the left add x transport from the cell to the left
+                sumtot=np.nansum([sumtot,xtransport[:,jj,ii]],0)
+    #
+    return sumtot
+
+
+  
 def heat_trasport(iind,jind,xtransport,ytransport):
     """ calculate the heat transport accross a given line. 
         calculate first iind and jiind. Note that this will work
@@ -1997,6 +2321,222 @@ def heat_trasport(iind,jind,xtransport,ytransport):
           sumtot=ma.sum([sumtot,xtransport[:,jj,ii]],0)
     #
     return sumtot
+
+def heat_transport_NorESM(iind,jind,xtransport,ytransport):
+    """ 
+    Calculate the heat transport accross a given line in latitude space.
+    This might be either a line that wraps around in model index space, or
+    forms a closed region. The assumption is that the indices that define the line
+    are ordered from left to right. The indiced might then wrap around in i-index,
+    form a closed region, or terminate at the j-max or j-min index. In practice this
+    should work for any arbitrary line.
+    
+    Note that this will work in a cartesian grid and on a NorESM type of C grid.
+    """
+    #looks already pretty good some things should be still figured out
+    #First cell
+    sumtot=ytransport.isel(y=jind[0],x=iind[0]) #[:,jind[0],iind[0]]
+    if jind[1]>jind[0]:
+        #if the next step is up right then add the transport from the cell to the right
+        sumtot=sumtot-xtransport.isel(y=jind[0],x=iind[0]+1)
+    #Last cell
+    if iind[-1]==xtransport.shape[-1]-1:
+    #if normal case with increasing indices
+        if jind[-1]==jind[0]:
+            sumtot=sumtot+ytransport.isel(y=jind[-1],x=iind[-1])
+        elif jind[-1]>jind[0]:
+            sumtot=sumtot+ytransport.isel(y=jind[-1],x=iind[-1])+xtransport.isel(y=jind[0],x=iind[0])
+        elif jind[-1]<jind[0]:
+            sumtot=sumtot+ytransport.isel(y=jind[-1],x=iind[-1])-xtransport.isel(y=jind[0],x=iind[0])
+    #if a tripolar grid
+    elif iind[-1]>iind[-2] and jind[-1]>jind[-2]:
+        sumtot=sumtot+ytransport.isel(y=jind[-1],x=iind[-1])-xtransport.isel(y=jind[-1],x=iind[-1])
+    ##########################
+    # - LOOP OVER THE REST - #
+    ##########################
+    for j in range(1,len(jind)-1):
+        #note that the last point is the copy of the first in case of bibolar
+        jj=jind[j]; ii=iind[j]
+        ##################################
+        #Straight Line in X
+        if jind[j-1]==jj and iind[j-1]<ii:
+            #add the transport from the cell below
+            sumtot=sumtot+ytransport.isel(y=jj,x=ii)
+            if jind[j+1]>jj:
+                #if the cell is last one in a strike of a cells before a step upwardright
+                sumtot=sumtot-xtransport.isel(y=jj,x=ii+1)
+        ###################################
+        #Straight backward line in x
+        elif jind[j-1]==jj and iind[j-1]>ii and jj+1<ytransport.shape[1]:
+            #add the transport from the cell above
+            sumtot=sumtot-ytransport.isel(y=jj+1,x=ii)
+            if jind[j+1]<jj and iind[j+1]<ii:
+                #if the cell is last one in a strike of a cells before a step downleft add the positive of xtransport
+                sumtot=sumtot+xtransport.isel(y=jj,x=ii-1)
+        ###################################
+        #Straight line in y downwards
+        elif jind[j-1]>jj and iind[j-1]==ii:
+            sumtot=sumtot+xtransport.isel(y=jj,x=ii)
+            if iind[j+1]>ii:
+                #if the cell is last one in a strike of a cells before a step right add the ytransport from below
+                sumtot=sumtot+ytransport.isel(y=jj,x=ii)
+        ###################################
+        #Straight line in y upwards
+        elif jind[j-1]<jj and iind[j-1]==ii:
+            sumtot=sumtot-xtransport.isel(y=jj,x=ii+1)
+            if iind[j+1]<ii and jj+1<xtransport.shape[-2]:
+                #if the cell is last one in a strike of a cells before a step left add the ytransport from above
+                sumtot=sumtot-ytransport.isel(y=jj+1,x=ii)
+        ###################################
+        #Step down-right
+        elif jind[j-1]>jj and iind[j-1]<ii:
+            #add transport from the cell to the left
+            sumtot=sumtot+xtransport.isel(y=jj,x=ii)
+            if iind[j+1]!=ii:
+                #and if the next move is away from this point ie the next cell is not the cell below
+                #then add also the transport from below
+                sumtot=sumtot+ytransport.isel(y=jj,x=ii)
+        ####################################
+        #Step upright
+        elif jind[j-1]<jj and iind[j-1]<ii:
+            #Add the ytransport from cell below
+            sumtot=sumtot+ytransport.isel(y=jj,x=ii)
+            if jind[j+1]!=jj:
+                #and if the next step is not next to it then negative of the x transport from the cell to the right
+                sumtot=sumtot-xtransport.isel(y=jj,x=ii+1)
+            if iind[j+1]<ii:
+                #if the next step is step up-left (ie you're in the turning point to backward stepping)
+                sumtot=sumtot-ytransport.isel(y=jj+1,x=ii)
+        #####################################
+        #Step up-left (backwards up)
+        elif jind[j-1]<jj and iind[j-1]>ii:
+            #add x transport from the cell to the right 
+            sumtot=sumtot-xtransport.isel(y=jj,x=ii+1)
+            if iind[j+1]<ii and jj+1<ytransport.shape[1]:
+                # if the next step is not directly above add the transport from the cell above
+                sumtot=sumtot-ytransport.isel(y=jj+1,x=ii)
+            if jind[j+1]<jj:
+                # and if the next step is down left then add transport from the cell to the left
+                sumtot=sumtot+xtransport.isel(y=jj,x=ii)
+        ######################################
+        #Step down-left (backwards down)
+        elif jind[j-1]>jj and iind[j-1]>ii:
+            #add y transport from above
+            sumtot=sumtot-ytransport.isel(y=jj+1,x=ii)
+            if jind[j+1]<jj:
+                #and if the next cell is not the cell to the left add x transport from the cell to the left
+                sumtot=sumtot+xtransport.isel(y=jj,x=ii)
+    #
+    return sumtot
+
+def heat_transport_NEMO(iind,jind,xtransport,ytransport):
+    """ 
+    calculate the heat transport accross a given line. 
+    calculate first iind and jiind. Note that this will work
+    in a cartesian grid and on a NEMO type of C grid.
+
+    This works until roughly 80N, after that the latitude lines will not
+    represent closed domains in the model i,j space. At that point it 
+    would probably be reasonable to close them 'artifically', in order
+    to 'conserve' properties (to the extent it is possible with time means)
+    """
+    #looks already pretty good some things should be still figured out
+    #First cell
+    sumtot=ytransport.isel(y=jind[0]-1,x=iind[0]) #[:,jind[0],iind[0]]
+    if jind[1]>jind[0]:
+        #if the next step is up right then add the transport from the cell to the right
+        sumtot=sumtot-1*xtransport.isel(y=jind[0],x=iind[0])
+    #Last cell
+    if iind[-1]==xtransport.shape[-1]-1:
+    #if normal case with increasing indices
+        if jind[-1]==jind[0]:
+            sumtot=sumtot+ytransport.isel(y=jind[-1]-1,x=iind[-1])
+        elif jind[-1]>jind[0]:
+            sumtot=sumtot+ytransport.isel(y=jind[-1]-1,x=iind[-1])+xtransport.isel(y=jind[-1]-1,x=iind[-1])
+        elif jind[-1]<jind[0]:
+            sumtot=sumtot+ytransport.isel(y=jind[-1]-1,x=iind[-1])-xtransport.isel(y=jind[-1]-1,x=iind[-1])
+    #if a tripolar grid
+    elif iind[-1]>iind[-2] and jind[-1]>jind[-2]:
+        sumtot=sumtot+ytransport.isel(y=jind[-1],x=iind[-1])-xtransport.isel(y=jind[-1],x=iind[-1])
+    ##########################
+    # - LOOP OVER THE REST - #
+    ##########################
+    for j in range(1,len(jind)-1):
+        #note that the last point is the copy of the first in case of bibolar
+        jj=jind[j]; ii=iind[j]
+        ##################################
+        #Straight Line in X
+        if jind[j-1]==jj and iind[j-1]<ii:
+            #add the transport from the cell below
+            sumtot=sumtot+ytransport.isel(y=jj-1,x=ii)
+            if jind[j+1]>jj:
+                #if the cell is last one in a strike of a cells before a step upwardright
+                sumtot=sumtot-xtransport.isel(y=jj,x=ii)
+        ###################################
+        #Straight backward line in x - is this really possible?
+        elif jind[j-1]==jj and iind[j-1]>ii and jj+1<ytransport.shape[1]:
+            #print('Straight backward line in x')
+            #add the transport from the cell above
+            sumtot=sumtot-ytransport.isel(y=jj,x=ii)
+            if jind[j+1]<jj and iind[j+1]<ii:
+                #if the cell is last one in a strike of a cells before a step downleft add the positive of xtransport
+                sumtot=sumtot+xtransport.isel(y=jj,x=ii-1)
+        ###################################
+        #Straight line in y downwards
+        elif jind[j-1]>jj and iind[j-1]==ii:
+            sumtot=sumtot+xtransport.isel(y=jj,x=ii-1)
+            if iind[j+1]>ii:
+                #if the cell is last one in a strike of a cells before a step right add the ytransport from below
+                sumtot=sumtot+ytransport.isel(y=jj-1,x=ii)
+        ###################################
+        #Straight line in y upwards
+        elif jind[j-1]<jj and iind[j-1]==ii:
+            sumtot=sumtot-xtransport.isel(y=jj,x=ii)
+            #if iind[j+1]>ii and jj+1<xtransport.shape[-2]:
+            #    #if the cell is last one in a strike of a cells before a step right add the ytransport from above
+            #    sumtot=sumtot+ytransport.isel(j=jj,i=ii)
+        ###################################
+        #Step down-right
+        elif jind[j-1]>jj and iind[j-1]<ii:
+            #add transport from the cell to the left
+            sumtot=sumtot+xtransport.isel(y=jj,x=ii-1)
+            if iind[j+1]!=ii:
+                #and if the next move is away from this point ie the next cell is not the cell below
+                #then add also the transport from below
+                sumtot=sumtot+ytransport.isel(y=jj-1,x=ii)
+        ####################################
+        #Step upright
+        elif jind[j-1]<jj and iind[j-1]<ii:
+            #Add the ytransport from cell below
+            sumtot=sumtot+ytransport.isel(y=jj,x=ii)
+            if jind[j+1]!=jj:
+                #and if the next step is not next to it then negative of the x transport from the cell to the right
+                sumtot=sumtot-xtransport.isel(y=jj,x=ii)
+            if iind[j+1]<ii:
+                #if the next step is step up-left (ie you're in the turning point to backward stepping)
+                sumtot=sumtot-ytransport.isel(y=jj,x=ii)
+        #####################################
+        #Step up-left (backwards up)
+        elif jind[j-1]<jj and iind[j-1]>ii:
+            #add x transport from the cell to the right 
+            sumtot=sumtot-xtransport.isel(y=jj,x=ii)
+            if iind[j+1]<ii and jj+1<ytransport.shape[1]:
+                # if the next step is not directly above add the transport from the cell above
+                sumtot=sumtot-ytransport.isel(y=jj,x=ii)
+            if jind[j+1]<jj:
+                # and if the next step is down left then add transport from the cell to the left
+                sumtot=sumtot+xtransport.isel(y=jj,x=ii-1)
+        ######################################
+        #Step down-left (backwards down)
+        elif jind[j-1]>jj and iind[j-1]>ii:
+            #add y transport from above
+            sumtot=sumtot-ytransport.isel(y=jj,x=ii)
+            if iind[j+1]<ii and jind[j+1]<jj:
+                #and if the next cell is not the cell to the left add x transport from the cell to the left
+                sumtot=sumtot+xtransport.isel(y=jj,x=ii-1)
+    #
+    return sumtot
+  
 
 def tot_transport(lat,xtransport,ytransport,dlat=1,modeltype='NorESM'):
     """calculate the northward heat transport"""
@@ -2121,3 +2661,161 @@ def geographic_midpoint(lat,lon,w=None):
     lat_out=np.arctan2(z,np.sqrt(x*x+y*y))*180./np.pi
     #
     return lat_out,lon_out
+
+def return_grid(dg_out,llon=-180,ulon=180):
+    '''                                                                                                                                                                                              
+    give the size in degrees and this returns the grid                                                                                                                                               
+    dg_out [dy,dx]                                                                                                                                                                                   
+    '''
+    dy,dx=dg_out
+    lat_out    = np.arange( -90+dy/2, 90, dy)
+    lon_out    = np.arange(llon+dx/2,ulon, dx)
+    lat_b_out  = np.arange( -90, 90+dy/2, dy)
+    lon_b_out  = np.arange(llon, ulon+dx/2, dx)
+    lon_out[np.where(lon_out>180)]=lon_out[np.where(lon_out>180)]-360
+    lon_b_out[np.where(lon_b_out>180)]=lon_b_out[np.where(lon_b_out>180)]-360
+    ds_out     = xr.Dataset({'lat': (['lat'], lat_out),'lon': (['lon'], lon_out),'lat_b':(['lat_b'], lat_b_out), 'lon_b': (['lon_b'], lon_b_out), })
+    #                                                                                                                                                                                                
+    return ds_out
+
+def return_grid_in(lon_in,lat_in,lon_b_in,lat_b_in):
+    '''                                                                                                                                                 
+                                                                                                                                                        
+    '''
+    lon_in[np.where(lon_in>180)] = lon_in[np.where(lon_in>180)]-360
+    lon_b_in[np.where(lon_b_in>180)] = lon_b_in[np.where(lon_b_in>180)]-360
+
+    return xr.Dataset({'lat': (['lat'], lat_in),'lon': (['lon'], lon_in),'lat_b':(['lat_b'], lat_b_in), 'lon_b': (['lon_b'], lon_b_in), })
+
+def perform_regrid(regridder,datain,mask=None):
+    '''                                                                                                                                                                                 
+    do the regridding, take care of the land points                                                                                                                                     
+    '''
+    if np.any(mask==None):
+        out = regridder(datain)
+    else:
+        out  = regridder(datain)
+        jinds,iinds = np.where(regridder(mask)<0.5)
+        out[:,jinds,iinds] = np.nan
+
+    return out
+
+def model_list(variables,case,dpath,freq='mon',cmip='CMIP6'):
+    '''
+    Returns a list of models that have all the variables available
+    #
+    note that this function assumes the following structure
+    #
+    dpath+cmip+'/'+realm+'/'+case+'/'+var+'/'+freq+'/'+model
+    
+    variables: dictionary with keys being the realms and entries the variables
+               the valid realms are 'ocean', 'atmos', 'seaice'
+               for example: variables={'ocean': ['hfx','hfy'],'seaice': ['sivol','siconc']
+    case: name of the case (i.e. 'piControl', 'control-1950' or smth similar)
+    dpath: Path to the CMIP directory strcuture
+    '''
+    for r,realm in enumerate(variables.keys()):
+        for v,var in enumerate(variables[realm]):
+            fpath =  dpath+cmip+'/'+realm+'/'+case+'/'+var+'/'+freq
+            if r==0 and v==0:
+                mlist = os.listdir(fpath)
+            else:
+                mdum = os.listdir(fpath)
+                mlist = list(set(mdum)&set(mlist))
+    
+    return sorted(mlist)
+
+def load_data(mlist,variables,dpath,case,cmip='CMIP6',y0=None,y1=None,mask_land=False,mask_ocean=False,common_grid=False,dy=1,dx=2,itype='bilinear',fpath='',decode_times=False):
+    '''
+    Given a list of models and variables, load the data, optionally regridding the different model variables to a common grid.
+    Returns a dictionary with all the entries.
+    #
+    Note that this function assumes the following file structure
+    #
+    dpath+cmip+'/'+realm+'/'+case+'/'+var+'/'+freq+'/'+model
+    
+    mlist: list of models (str)
+    variables: dictionary with keys being the realms and entries the variables
+               the valid realms are 'ocean', 'atmos', 'seaice'
+               for example: variables={'ocean': ['hfx','hfy'],'seaice': ['sivol','siconc']
+    dpath: data path to the beginning of the cmip data structure
+    cmip : cmip version, default is 'CMIP6'
+    case: case name
+    y0: first year (index), optional
+    y1: last year (index), optional
+    mask_land: optional, defaults to False, if True then only ocean values are used
+    mask_ocean: optional, defaults to False, if True then only land values are used
+    common_grid: optional, defaults to False, if True the data is interpolated to common cartesian grid
+    dy: latitude resolution of the common grid 
+    dx: longitudal resolution  of the common grid
+    itype: type of interpolation
+    fpath: directory to save regridding weights, defaults to the current folder
+    decode_times: boolean, passed to xarray.open_mfdataset, optional, defaults to False
+    '''
+    #
+    dpath = dpath+cmip
+    #
+    all_out = {}
+    if common_grid:
+        ds_out  = return_grid([dy,dx],llon=-180,ulon=180)
+    #
+    for m,mm in enumerate(mlist):
+        for r,realm in enumerate(variables.keys()):
+            print(mm)
+            if realm in ['atmos'] and (mask_land or mask_ocean):
+                afnames = os.listdir(dpath+'/fixed/'+case+'/sftlf/'+mm+'/')
+                mask = xr.open_dataset(dpath+'/fixed/'+case+'/sftlf/'+mm+'/'+afnames[0]).sftlf.values
+                if mask_land:
+                    mask = 1 - mask/mask.max()
+            else:
+                mask=None
+            # find out all the ensembles that have all the variables
+            for v,vv in enumerate(variables[realm]):
+                if v==0:
+                    ensembles=sorted(os.listdir(dpath+'/'+realm+'/'+case+'/'+vv+'/mon/'+mm+'/'))
+            else:
+                ensdum=sorted(os.listdir(dpath+'/'+realm+'/'+case+'/'+vv+'/mon/'+mm+'/'))
+                ensembles = list(set(ensdum)&set(ensembles))
+            #print(ensembles)
+            # HERE WE WILL USE JUST ONE ENSEMBLE MEMBER
+            # ANOTHER OPTION WOULD BE TO USE ALL, IN THAT CASE
+            # YOU WANT TO ADD ADDITIONAL LOOP OVER ENSEMBLES WITHING
+            # THE VARIABLES LOOP
+            if len(ensembles)>0:
+                elen=0
+                for e in ensembles:
+                    if len(os.listdir(dpath+'/'+realm+'/'+case+'/'+vv+'/mon/'+mm+'/'+e+'/'))>elen:
+                        elen=len(os.listdir(dpath+'/'+realm+'/'+case+'/'+vv+'/mon/'+mm+'/'+e+'/'))
+                        ens=e
+            else:
+                continue
+            print(ens)
+            for v,vv in enumerate(variables[realm]):
+                print(vv)
+                dat = xr.open_mfdataset(dpath+'/'+realm+'/'+case+'/'+vv+'/mon/'+mm+'/'+ens+'/*.nc',decode_times=decode_times)
+                if y0!=None and y1!=None:
+                    dat=dat.isel(time=slice(y0,y1*12))
+                if common_grid:
+                    if y0==None and y1==None:
+                        time_out = dat.time
+                    else:
+                        time_out = np.array(range((y1-y0)*12))
+                    if v==0:
+                        if len(dat.lon_bnds.shape)>2:
+                            lon_b = np.concatenate([dat.lon_bnds.isel(time=0).values[:,0], dat.lon_bnds.isel(time=0).values[-1:,1]],axis=0)
+                            lat_b = np.concatenate([dat.lat_bnds.isel(time=0).values[:,0], dat.lat_bnds.isel(time=0).values[-1:,1]],axis=0)
+                        else:
+                            lon_b = np.concatenate([dat.lon_bnds.values[:,0], dat.lon_bnds.values[-1:,1]],axis=0)
+                            lat_b = np.concatenate([dat.lat_bnds.values[:,0], dat.lat_bnds.values[-1:,1]],axis=0)
+                        ds_in = return_grid_in(dat.lon.values,dat.lat.values,lon_b,lat_b)
+                        if not os.path.exists(fpath):
+                            os.makedirs(fpath)
+                        regridder = xe.Regridder(ds_in,ds_out,itype,filename=fpath+itype+'_'+mm+'_dy'+str(dy)+'deg_dx'+str(dx)+'deg.nc',reuse_weights=True)
+                       #                                                                                                                                 
+                    out = perform_regrid(regridder, dat[vv].values, mask=mask)
+                    all_out[mm+'_'+vv] = xr.DataArray(out,dims=('time','lat','lon'),coords={'time': (['time'], time_out[:out.shape[0]]) ,'lat': (['lat'],ds_out.lat.values),'lon': (['lon'], ds_out.lon.values)},name=mm+'_'+vv)
+                else:
+                    all_out[mm+'_'+vv] = dat
+                dat.close()
+        # 
+        return all_out
