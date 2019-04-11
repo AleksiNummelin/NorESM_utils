@@ -642,7 +642,7 @@ def lonlatfix(lon,lat):
       lon,lat=np.meshgrid(lon, lat)
       norm_grid=False
     if ma.max(lon)>180 or ma.min(lon)<-180:
-      print 'something is wrong max(lon)='+str(ma.max(lon))+', min(lon)='+ma.min(lon)
+      print('something is wrong max(lon)='+str(ma.max(lon))+', min(lon)='+ma.min(lon))
     #
     return lon, lat, norm_grid
 
@@ -1344,7 +1344,7 @@ def smooth2D(lon,lat,datain,n=1,use_weights=False,weights_only=False,save_weight
           dxy.append(distance([lat[j],lon[i]],[lat[jind2[c]],lon[iind2[c]]]))
         c=c+1
     if k%10000.==0:
-       print k, c, j, i
+       print(k, c, j, i)
     if use_weights:
       if k==0:
         weights_out=np.zeros((len(jind),c,3)) #3-d array with (weights,jind2,iind2)
@@ -1446,7 +1446,7 @@ def trajectories(uin,vin,lon,lat,ulon,ulat,vlon,vlat,ine,inw,pdy,pdx,angleu=None
     xtrack=[]; ytrack=[]
     for k in range(len(iinds2)):
      xx=iinds2[k]; yy=jinds2[k]
-     print k
+     print(k)
      if (1-umask[yy,xx]) and (1-vmask[yy,xx]):
        xlon=[lon[yy,xx]];ylat=[lat[yy,xx]]
        xlon2=[lon[yy,xx]];ylat2=[lat[yy,xx]] #these are just for picking up the monthly location
@@ -1582,25 +1582,25 @@ def load_CMIP5(var,regime1,dims,models=None,scenario='rcp85',ensembles=None,z=[N
            models=list(set(models)&set(modelsd)) #only keep the models that have all the variables
       models.sort() #this should be list of models that have all the variables
       if not models[0]:
-         print 'There are no common models for these variables'
+         print('There are no common models for these variables')
          return
-    print models
+    print(models)
     all_dict={'models':models} #put the list of models in the dictionary
     m_ens=[];tax=[];years=[]
     mm=0
     for m2,model in enumerate(models):
      m=m2-mm
-     print model
+     print(model)
      ens=[]
      #First read some grid variables 
      #- additionally lon,lat information is dowloaded for each variable separately
      if 'atmos' in regime1:
        if not model in os.listdir('/Data/skd/share/ModData4/CMIP5/fixed/atm/areacella/'):
-          print 'There is no areacella for this model'
+          print('There is no areacella for this model')
           all_dict['models'].pop(m); mm=mm+1
           continue
        elif not model in os.listdir('/Data/skd/share/ModData4/CMIP5/fixed/atm/sftlf/'):
-          print 'There is no sftlf for this model'
+          print('There is no sftlf for this model')
           all_dict['models'].pop(m); mm=mm+1
           continue
        exec('pathg="/Data/skd/share/ModData4/CMIP5/fixed/atm/areacella/'+model+'/"')
@@ -1625,7 +1625,7 @@ def load_CMIP5(var,regime1,dims,models=None,scenario='rcp85',ensembles=None,z=[N
        exec('all_dict["a'+str(m)+'"]=a'); exec('all_dict["aa'+str(m)+'"]=aa');
      if 'ocean' in regime1 or 'seaice' in regime1:
        if not model in os.listdir('/Data/skd/share/ModData4/CMIP5/fixed/ocn/areacello/'):
-          print 'There is no areacello for this model'
+          print('There is no areacello for this model')
           all_dict['models'].pop(m); mm=mm+1
           continue
        exec('pathgo="/Data/skd/share/ModData4/CMIP5/fixed/ocn/areacello/'+model+'/"')
@@ -1678,7 +1678,7 @@ def load_CMIP5(var,regime1,dims,models=None,scenario='rcp85',ensembles=None,z=[N
        dum=list(set(dum)&set(os.listdir('/Data/skd/share/'+regime2[c]+'/CMIP5/'+regime1[c]+'/'+scenario+'/'+var[c]+'/mon/'+model+'/')))
      #loop over the ensemble members
      dum.sort()
-     print dum
+     print(dum)
      for k,ensemble in enumerate(ensembles):
       if ensemble not in dum: #if the ensemble is not in the dum then break
          continue 
@@ -1816,7 +1816,7 @@ def load_CMIP5(var,regime1,dims,models=None,scenario='rcp85',ensembles=None,z=[N
           # --- ############################# --- #
           cc=0 #counter for index
           for i in range(ind,ind2): #MAIN LOOP (files ie ~time)
-             print str(i)
+             print(str(i))
              exec('f_'+v+str(i)+'=Dataset(path'+v+str(k)+'+dirList'+v+str(k)+'[i])') #open the file
              exec('data=f_'+v+str(i)+'.variables["'+v+'"][:].squeeze()') #load the variable
              #save 2D field
@@ -2030,7 +2030,7 @@ def latitude_line_old(lat0, lat):
 
 
 
-def latitude_line(lat0, lat):
+def latitude_line(lat0, lat, bipolar=True):
     """
     Define the indices which mark a latitude 
     """
@@ -2041,10 +2041,13 @@ def latitude_line(lat0, lat):
     maxx=lat.shape[1]-1
     keep_looping=True
     backwards=False
-    bipolar=False
-    if len(np.where(lat==np.max(lat))[0])==1: #len(np.where(np.diff(lat[-1,:])==0)[0])==0:
-        bipolar=True
-        print('bipolar')
+    if bipolar==None:
+        if len(np.where(lat==np.max(lat))[0])==1: #len(np.where(np.diff(lat[-1,:])==0)[0])==0:
+            print(np.where(lat==np.max(lat))[0])
+            bipolar=True
+            print('bipolar')
+        else:
+            bipolar=False
     while keep_looping: #normally loop over i indices
         ind = np.where(lat0<=lat[:,i])[0].astype(int)
         #
