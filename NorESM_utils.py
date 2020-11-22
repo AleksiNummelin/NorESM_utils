@@ -32,7 +32,8 @@ import calendar
 #from netCDF4 import Dataset
 #import math
 #
-########################
+#
+#######################
 #
 def distance(origin, destination, radius = 6371):
     '''
@@ -2338,22 +2339,31 @@ def heat_transport_NorESM(iind,jind,xtransport,ytransport):
     """
     #looks already pretty good some things should be still figured out
     #First cell
+    inds_out = []
     sumtot=ytransport.isel(y=jind[0],x=iind[0]) #[:,jind[0],iind[0]]
+    inds_out.append([jind[0],iind[0],1,0])
     if jind[1]>jind[0]:
         #if the next step is up right then add the transport from the cell to the right
         sumtot=sumtot-xtransport.isel(y=jind[0],x=iind[0]+1)
+        inds_out.append([jind[0],iind[0]+1,0,-1])
     #Last cell
     if iind[-1]==xtransport.shape[-1]-1:
     #if normal case with increasing indices
         if jind[-1]==jind[0]:
             sumtot=sumtot+ytransport.isel(y=jind[-1],x=iind[-1])
+            inds_out.append([jind[-1],iind[-1],1,0])
         elif jind[-1]>jind[0]:
             sumtot=sumtot+ytransport.isel(y=jind[-1],x=iind[-1])+xtransport.isel(y=jind[0],x=iind[0])
+            inds_out.append([jind[-1],iind[-1],1,0])
+            inds_out.append([jind[0],iind[0],0,1])
         elif jind[-1]<jind[0]:
             sumtot=sumtot+ytransport.isel(y=jind[-1],x=iind[-1])-xtransport.isel(y=jind[0],x=iind[0])
+            inds_out.append([jind[-1],iind[-1],1,0])
+            inds_out.append([jind[0],iind[0],0,-1])
     #if a tripolar grid
     elif iind[-1]>iind[-2] and jind[-1]>jind[-2]:
         sumtot=sumtot+ytransport.isel(y=jind[-1],x=iind[-1])-xtransport.isel(y=jind[-1],x=iind[-1])
+        inds_out.append([jind[-1],iind[-1],1,-1])
     ##########################
     # - LOOP OVER THE REST - #
     ##########################
@@ -2365,72 +2375,90 @@ def heat_transport_NorESM(iind,jind,xtransport,ytransport):
         if jind[j-1]==jj and iind[j-1]<ii:
             #add the transport from the cell below
             sumtot=sumtot+ytransport.isel(y=jj,x=ii)
+            inds_out.append([jj,ii,1,0])
             if jind[j+1]>jj:
                 #if the cell is last one in a strike of a cells before a step upwardright
                 sumtot=sumtot-xtransport.isel(y=jj,x=ii+1)
+                inds_out.append([jj,ii+1,0,-1])
         ###################################
         #Straight backward line in x
         elif jind[j-1]==jj and iind[j-1]>ii and jj+1<ytransport.shape[1]:
             #add the transport from the cell above
             sumtot=sumtot-ytransport.isel(y=jj+1,x=ii)
+            inds_out.append([jj+1,ii,-1,0])
             if jind[j+1]<jj and iind[j+1]<ii:
                 #if the cell is last one in a strike of a cells before a step downleft add the positive of xtransport
                 sumtot=sumtot+xtransport.isel(y=jj,x=ii-1)
+                inds_out.append([jj,ii-1,0,1])
         ###################################
         #Straight line in y downwards
         elif jind[j-1]>jj and iind[j-1]==ii:
             sumtot=sumtot+xtransport.isel(y=jj,x=ii)
+            inds_out.append([jj,ii,0,1])
             if iind[j+1]>ii:
                 #if the cell is last one in a strike of a cells before a step right add the ytransport from below
                 sumtot=sumtot+ytransport.isel(y=jj,x=ii)
+                inds_out.append([jj,ii,1,0])
         ###################################
         #Straight line in y upwards
         elif jind[j-1]<jj and iind[j-1]==ii:
             sumtot=sumtot-xtransport.isel(y=jj,x=ii+1)
+            inds_out.append([jj,ii+1,0,-1])
             if iind[j+1]<ii and jj+1<xtransport.shape[-2]:
                 #if the cell is last one in a strike of a cells before a step left add the ytransport from above
                 sumtot=sumtot-ytransport.isel(y=jj+1,x=ii)
+                inds_out.append([jj+1,ii,-1,0])
         ###################################
         #Step down-right
         elif jind[j-1]>jj and iind[j-1]<ii:
             #add transport from the cell to the left
             sumtot=sumtot+xtransport.isel(y=jj,x=ii)
+            inds_out.append([jj,ii,0,1])
             if iind[j+1]!=ii:
                 #and if the next move is away from this point ie the next cell is not the cell below
                 #then add also the transport from below
                 sumtot=sumtot+ytransport.isel(y=jj,x=ii)
+                inds_out.append([jj,ii,1,0])
         ####################################
         #Step upright
         elif jind[j-1]<jj and iind[j-1]<ii:
             #Add the ytransport from cell below
             sumtot=sumtot+ytransport.isel(y=jj,x=ii)
+            inds_out.append([jj,ii,1,0])
             if jind[j+1]!=jj:
                 #and if the next step is not next to it then negative of the x transport from the cell to the right
                 sumtot=sumtot-xtransport.isel(y=jj,x=ii+1)
+                inds_out.append([jj,ii+1,0,-1])
             if iind[j+1]<ii:
                 #if the next step is step up-left (ie you're in the turning point to backward stepping)
                 sumtot=sumtot-ytransport.isel(y=jj+1,x=ii)
+                inds_out.append([jj+1,ii,-1,0])
         #####################################
         #Step up-left (backwards up)
         elif jind[j-1]<jj and iind[j-1]>ii:
             #add x transport from the cell to the right 
             sumtot=sumtot-xtransport.isel(y=jj,x=ii+1)
+            inds_out.append([jj,ii+1,0,-1])
             if iind[j+1]<ii and jj+1<ytransport.shape[1]:
                 # if the next step is not directly above add the transport from the cell above
                 sumtot=sumtot-ytransport.isel(y=jj+1,x=ii)
+                inds_out.append([jj+1,ii,-1,0])
             if jind[j+1]<jj:
                 # and if the next step is down left then add transport from the cell to the left
                 sumtot=sumtot+xtransport.isel(y=jj,x=ii)
+                inds_out.append([jj,ii,0,1])
         ######################################
         #Step down-left (backwards down)
         elif jind[j-1]>jj and iind[j-1]>ii:
             #add y transport from above
             sumtot=sumtot-ytransport.isel(y=jj+1,x=ii)
+            inds_out.append([jj+1,ii,-1,0])
             if jind[j+1]<jj:
                 #and if the next cell is not the cell to the left add x transport from the cell to the left
                 sumtot=sumtot+xtransport.isel(y=jj,x=ii)
+                inds_out.append([jj,ii,0,1])
     #
-    return sumtot
+    return sumtot, np.array(inds_out)
 
 def heat_transport_NEMO(iind,jind,xtransport,ytransport):
     """ 
@@ -2445,22 +2473,29 @@ def heat_transport_NEMO(iind,jind,xtransport,ytransport):
     """
     #looks already pretty good some things should be still figured out
     #First cell
+    inds_out=[]
     sumtot=ytransport.isel(y=jind[0]-1,x=iind[0]) #[:,jind[0],iind[0]]
+    inds_out.append([jind[0],iind[0],1,0])
     if jind[1]>jind[0]:
         #if the next step is up right then add the transport from the cell to the right
         sumtot=sumtot-1*xtransport.isel(y=jind[0],x=iind[0])
+        inds_out.append([jind[0],iind[0],0,-1])
     #Last cell
     if iind[-1]==xtransport.shape[-1]-1:
     #if normal case with increasing indices
         if jind[-1]==jind[0]:
             sumtot=sumtot+ytransport.isel(y=jind[-1]-1,x=iind[-1])
+            inds_out.append([jind[-1]-1,iind[-1],1,0])
         elif jind[-1]>jind[0]:
             sumtot=sumtot+ytransport.isel(y=jind[-1]-1,x=iind[-1])+xtransport.isel(y=jind[-1]-1,x=iind[-1])
+            inds_out.append([jind[-1]-1,iind[-1],1,1])
         elif jind[-1]<jind[0]:
             sumtot=sumtot+ytransport.isel(y=jind[-1]-1,x=iind[-1])-xtransport.isel(y=jind[-1]-1,x=iind[-1])
+            inds_out.append([jind[-1]-1,iind[-1],1,-1])
     #if a tripolar grid
     elif iind[-1]>iind[-2] and jind[-1]>jind[-2]:
         sumtot=sumtot+ytransport.isel(y=jind[-1],x=iind[-1])-xtransport.isel(y=jind[-1],x=iind[-1])
+        inds_out.append([jind[-1],iind[-1],1,-1])
     ##########################
     # - LOOP OVER THE REST - #
     ##########################
@@ -2472,29 +2507,36 @@ def heat_transport_NEMO(iind,jind,xtransport,ytransport):
         if jind[j-1]==jj and iind[j-1]<ii:
             #add the transport from the cell below
             sumtot=sumtot+ytransport.isel(y=jj-1,x=ii)
+            inds_out.append([jj-1,ii,1,0])
             if jind[j+1]>jj:
                 #if the cell is last one in a strike of a cells before a step upwardright
                 sumtot=sumtot-xtransport.isel(y=jj,x=ii)
+                inds_out.append([jj,ii,0,-1])
         ###################################
         #Straight backward line in x - is this really possible?
         elif jind[j-1]==jj and iind[j-1]>ii and jj+1<ytransport.shape[1]:
             #print('Straight backward line in x')
             #add the transport from the cell above
             sumtot=sumtot-ytransport.isel(y=jj,x=ii)
+            inds_out.append([jj,ii,-1,0])
             if jind[j+1]<jj and iind[j+1]<ii:
                 #if the cell is last one in a strike of a cells before a step downleft add the positive of xtransport
                 sumtot=sumtot+xtransport.isel(y=jj,x=ii-1)
+                inds_out.append([jj,ii-1,0,1])
         ###################################
         #Straight line in y downwards
         elif jind[j-1]>jj and iind[j-1]==ii:
             sumtot=sumtot+xtransport.isel(y=jj,x=ii-1)
+            inds_out.append([jj,ii-1,0,1])
             if iind[j+1]>ii:
                 #if the cell is last one in a strike of a cells before a step right add the ytransport from below
                 sumtot=sumtot+ytransport.isel(y=jj-1,x=ii)
+                inds_out.append([jj-1,ii,1,0])
         ###################################
         #Straight line in y upwards
         elif jind[j-1]<jj and iind[j-1]==ii:
             sumtot=sumtot-xtransport.isel(y=jj,x=ii)
+            inds_out.append([jj,ii,0,-1])
             #if iind[j+1]>ii and jj+1<xtransport.shape[-2]:
             #    #if the cell is last one in a strike of a cells before a step right add the ytransport from above
             #    sumtot=sumtot+ytransport.isel(j=jj,i=ii)
@@ -2503,42 +2545,52 @@ def heat_transport_NEMO(iind,jind,xtransport,ytransport):
         elif jind[j-1]>jj and iind[j-1]<ii:
             #add transport from the cell to the left
             sumtot=sumtot+xtransport.isel(y=jj,x=ii-1)
+            inds_out.append([jj,ii-1,0,1])
             if iind[j+1]!=ii:
                 #and if the next move is away from this point ie the next cell is not the cell below
                 #then add also the transport from below
                 sumtot=sumtot+ytransport.isel(y=jj-1,x=ii)
+                inds_out.append([jj-1,ii,1,0])
         ####################################
         #Step upright
         elif jind[j-1]<jj and iind[j-1]<ii:
             #Add the ytransport from cell below
             sumtot=sumtot+ytransport.isel(y=jj,x=ii)
+            inds_out.append([jj,ii,1,0])
             if jind[j+1]!=jj:
                 #and if the next step is not next to it then negative of the x transport from the cell to the right
                 sumtot=sumtot-xtransport.isel(y=jj,x=ii)
+                inds_out.append([jj,ii,0,-1])
             if iind[j+1]<ii:
                 #if the next step is step up-left (ie you're in the turning point to backward stepping)
                 sumtot=sumtot-ytransport.isel(y=jj,x=ii)
+                inds_out.append([jj,ii,-1,0])
         #####################################
         #Step up-left (backwards up)
         elif jind[j-1]<jj and iind[j-1]>ii:
             #add x transport from the cell to the right 
             sumtot=sumtot-xtransport.isel(y=jj,x=ii)
+            inds_out.append([jj,ii,0,-1])
             if iind[j+1]<ii and jj+1<ytransport.shape[1]:
                 # if the next step is not directly above add the transport from the cell above
                 sumtot=sumtot-ytransport.isel(y=jj,x=ii)
+                inds_out.append([jj,ii,-1,0])
             if jind[j+1]<jj:
                 # and if the next step is down left then add transport from the cell to the left
                 sumtot=sumtot+xtransport.isel(y=jj,x=ii-1)
+                inds_out.append([jj,ii-1,0,1])
         ######################################
         #Step down-left (backwards down)
         elif jind[j-1]>jj and iind[j-1]>ii:
             #add y transport from above
             sumtot=sumtot-ytransport.isel(y=jj,x=ii)
+            inds_out.append([jj,ii,-1,0])
             if iind[j+1]<ii and jind[j+1]<jj:
                 #and if the next cell is not the cell to the left add x transport from the cell to the left
                 sumtot=sumtot+xtransport.isel(y=jj,x=ii-1)
+                inds_out.append([jj,ii-1,0,1])
     #
-    return sumtot
+    return sumtot, np.array(inds_out)
   
 
 def tot_transport(lat,xtransport,ytransport,dlat=1,modeltype='NorESM'):
